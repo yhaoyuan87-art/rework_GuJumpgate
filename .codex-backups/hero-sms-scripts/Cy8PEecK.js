@@ -1,0 +1,2 @@
+﻿import{j as c}from"./Wm0kvmnW.js";function m(){const n=c();return{getServiceIcon:o=>`${n.public.amazonUrl}/img/service/${o}0.webp`,getCountryIcon:o=>`${n.public.amazonUrl}/img/country/${o}.svg`,getPayIcon:o=>`${n.public.amazonUrl}/img/pay/${o}.svg`,getIcon:o=>`${n.public.amazonUrl}/img/icons/${o}.svg`,getPlatformIcon:o=>`${n.public.amazonUrl}/img/platform/${o}.svg`}}export{m as u};
+

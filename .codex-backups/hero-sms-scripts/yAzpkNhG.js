@@ -1,0 +1,2 @@
+﻿import{u as c}from"./CFjhuQBP.js";import{ar as e,r as o,g}from"./Wm0kvmnW.js";function u(){const{width:n}=c(),s=g(()=>n.value<1601),i=e("openAside",()=>{}),A=e("closeAside",()=>{}),h=e("isAsideOpen",o(!1)),t=e("highlightAside",()=>{}),d=e("showHighlightAside",o(!1));return{ASIDE_BREAKPOINT:1601,isAsideBreakpoint:s,openAside:i,closeAside:A,isAsideOpen:h,highlightAside:t,showHighlightAside:d,openOrHighlightAside:()=>{s.value?setTimeout(()=>i()):t()}}}export{u};
+

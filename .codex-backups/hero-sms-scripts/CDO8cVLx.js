@@ -1,0 +1,2 @@
+﻿import{h as n,o as d,c as o,C as t,f as l}from"./Wm0kvmnW.js";const r={},i={class:"banner"};function a(e,s){return d(),o("div",i,[t(e.$slots,"default",{},void 0,!0),s[0]||(s[0]=l("div",{class:"child child1"},null,-1)),s[1]||(s[1]=l("div",{class:"child child2"},null,-1)),s[2]||(s[2]=l("div",{class:"child child3"},null,-1))])}const f=n(r,[["render",a],["__scopeId","data-v-140813f0"]]);export{f as B};
+
