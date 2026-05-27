@@ -9,12 +9,14 @@
       closeConflictingTabsForSource,
       completeNodeFromBackground,
       createLocalCliProxyApi = null,
+      createAutomationTab = null,
       ensureContentScriptReadyOnTab,
       getPanelMode,
       getTabId,
       isLocalhostOAuthCallbackUrl,
       isTabAlive,
       normalizeHotmailLocalBaseUrl = (value) => String(value || '').trim(),
+      normalizeAetherUrl,
       normalizeCodex2ApiUrl,
       normalizeSub2ApiUrl,
       rememberSourceLastUrl,
@@ -121,6 +123,203 @@
         .map((value) => normalizeString(value))
         .find(Boolean);
       return details || `Codex2API 请求失败（HTTP ${responseStatus}）。`;
+    }
+
+    function getAetherApiErrorMessage(payload, responseStatus = 500) {
+      const details = [
+        payload?.detail,
+        payload?.error,
+        payload?.message,
+        payload?.reason,
+      ]
+        .map((value) => normalizeString(value))
+        .find(Boolean);
+      return details || `Aether 请求失败（HTTP ${responseStatus}）。`;
+    }
+
+    function normalizeAetherProviderId(value = '', aetherUrl = '') {
+      const direct = normalizeString(value);
+      if (direct) {
+        return direct;
+      }
+      try {
+        const fromUrl = new URL(aetherUrl).searchParams.get('providerId');
+        if (fromUrl) {
+          return fromUrl.trim();
+        }
+      } catch {
+        // Fall back to the built-in default below.
+      }
+      return '20641f07-caa0-4988-b7ff-adac2383b73f';
+    }
+
+    function getAetherBearerToken(state = {}) {
+      return normalizeString(state?.aetherBearerToken);
+    }
+
+    function getAetherDeviceId(state = {}) {
+      return normalizeString(state?.aetherDeviceId);
+    }
+
+    async function runAetherApiWithBearer(origin, path, options = {}) {
+      const token = normalizeString(options.bearerToken);
+      const deviceId = normalizeString(options.deviceId);
+      if (!token || !deviceId) {
+        return null;
+      }
+      const response = await fetch(`${origin}${path}`, {
+        method: options.method || 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Device-Id': deviceId,
+        },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
+      return { ok: response.ok, status: response.status, payload };
+    }
+
+    async function getAetherAutomationTab(origin, options = {}) {
+      const poolUrl = options.poolUrl || `${origin}/admin/pool`;
+      const queryPattern = `${origin.replace(/\/+$/, '')}/*`;
+      let tabs = [];
+      try {
+        tabs = await chrome.tabs.query({ url: queryPattern });
+      } catch {
+        tabs = [];
+      }
+      const poolTabs = tabs.filter((tab) => /\/admin\/pool(?:[?#]|$)/i.test(String(tab?.url || '')));
+      if (poolTabs.length) {
+        return poolTabs.find((tab) => tab.active) || poolTabs[0];
+      }
+      if (tabs.length) {
+        return tabs.find((tab) => tab.active) || tabs[0];
+      }
+      if (!tabs.length && typeof createAutomationTab === 'function') {
+        try {
+          const tab = await createAutomationTab({ url: poolUrl, active: true });
+          if (tab?.id) {
+            await sleep(1200);
+            return tab;
+          }
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+
+    async function runAetherApiFromPage(origin, path, options = {}) {
+      if (!chrome?.tabs?.query || !chrome?.scripting?.executeScript) {
+        throw new Error('当前浏览器不支持读取 Aether 页面登录态。');
+      }
+      const tab = await getAetherAutomationTab(origin, options);
+      if (!tab?.id) {
+        throw new Error('未找到 Aether 页面，请先打开并登录 Aether 号池页后重试。');
+      }
+      const [{ result } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async ({ requestPath, requestMethod, requestBody }) => {
+          function getDeviceId() {
+            const existing = localStorage.getItem('aether_client_device_id') || '';
+            if (existing) return existing;
+            const created = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `device-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
+            localStorage.setItem('aether_client_device_id', created);
+            return created;
+          }
+
+          async function requestWithToken(token) {
+            const deviceId = getDeviceId();
+            const response = await fetch(requestPath, {
+              method: requestMethod,
+              credentials: 'include',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...(deviceId ? { 'X-Client-Device-Id': deviceId } : {}),
+              },
+              body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+            });
+            let payload = {};
+            try {
+              payload = await response.json();
+            } catch {
+              payload = {};
+            }
+            return { ok: response.ok, status: response.status, payload };
+          }
+
+          let token = localStorage.getItem('access_token') || '';
+          let result = await requestWithToken(token);
+          if (result.status === 401) {
+            try {
+              const refreshResponse = await fetch('/api/auth/refresh', {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                },
+                body: '{}',
+              });
+              const refreshPayload = await refreshResponse.json().catch(() => ({}));
+              token = refreshPayload?.access_token || '';
+              if (refreshResponse.ok && token) {
+                localStorage.setItem('access_token', token);
+                result = await requestWithToken(token);
+              }
+            } catch {
+              // Keep the original 401 result.
+            }
+          }
+          return result;
+        },
+        args: [{
+          requestPath: path,
+          requestMethod: options.method || 'POST',
+          requestBody: options.body,
+        }],
+      });
+      if (!result || typeof result !== 'object') {
+        throw new Error('Aether 页面未返回接口结果，请确认页面已正常加载。');
+      }
+      return result;
+    }
+
+    async function fetchAetherJson(origin, path, options = {}) {
+      const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || 45000));
+      let timeoutHandle = null;
+      try {
+        const result = await Promise.race([
+          runAetherApiWithBearer(origin, path, options).then((result) => {
+            if (!result || result.status === 401 || result.status === 403) {
+              return runAetherApiFromPage(origin, path, options);
+            }
+            return result;
+          }),
+          new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => reject(new Error('Aether 请求超时，请稍后重试。')), timeoutMs);
+          }),
+        ]);
+        if (!result.ok) {
+          throw new Error(getAetherApiErrorMessage(result.payload, result.status));
+        }
+        return result.payload || {};
+      } finally {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      }
     }
 
     function deriveCpaManagementOrigin(vpsUrl) {
@@ -299,6 +498,9 @@
       if (getPanelMode(state) === 'codex2api') {
         return executeCodex2ApiStep10(state);
       }
+      if (getPanelMode(state) === 'aether') {
+        return executeAetherStep10(state);
+      }
       if (getPanelMode(state) === 'sub2api') {
         return executeSub2ApiStep10(state);
       }
@@ -464,6 +666,52 @@
       });
     }
 
+    async function executeAetherStep10(state) {
+      const platformVerifyStep = resolvePlatformVerifyStep(state);
+      const confirmOauthStep = resolveConfirmOauthStep(platformVerifyStep);
+      const authLoginStep = resolveAuthLoginStep(platformVerifyStep);
+      if (state.localhostUrl && !isLocalhostOAuthCallbackUrl(state.localhostUrl)) {
+        throw new Error(`步骤 ${confirmOauthStep} 捕获到的 localhost OAuth 回调地址无效，请重新执行步骤 ${confirmOauthStep}。`);
+      }
+      if (!state.localhostUrl) {
+        throw new Error(`缺少 localhost 回调地址，请先完成步骤 ${confirmOauthStep}。`);
+      }
+
+      const callback = parseLocalhostCallback(state.localhostUrl, platformVerifyStep);
+      const expectedState = normalizeString(state.aetherOAuthState);
+      if (expectedState && expectedState !== callback.state) {
+        throw new Error(`Aether 回调 state 与当前授权会话不匹配，请重新执行步骤 ${authLoginStep}。`);
+      }
+
+      const aetherUrl = normalizeAetherUrl(state.aetherUrl);
+      const providerId = normalizeAetherProviderId(state.aetherProviderId, aetherUrl);
+      const origin = new URL(aetherUrl).origin;
+      const poolUrl = `${origin}/admin/pool?providerId=${encodeURIComponent(providerId)}`;
+
+      await addStepLog(platformVerifyStep, '正在向 Aether 提交回调并导入 OAuth 账号...');
+      const result = await fetchAetherJson(origin, `/api/admin/provider-oauth/providers/${encodeURIComponent(providerId)}/complete`, {
+        method: 'POST',
+        poolUrl,
+        bearerToken: getAetherBearerToken(state),
+        deviceId: getAetherDeviceId(state),
+        body: {
+          callback_url: callback.url,
+        },
+      });
+
+      const keyId = normalizeString(result?.key_id || result?.keyId);
+      const email = normalizeString(result?.email);
+      const verifiedStatus = keyId
+        ? `Aether OAuth 账号导入成功：${email || keyId}`
+        : 'Aether OAuth 账号导入成功';
+      await addStepLog(platformVerifyStep, verifiedStatus, 'ok');
+      await completeNodeFromBackground(state?.nodeId || 'platform-verify', {
+        localhostUrl: callback.url,
+        verifiedStatus,
+        aetherKeyId: keyId || null,
+      });
+    }
+
     async function executeSub2ApiStep10(state) {
       const platformVerifyStep = resolvePlatformVerifyStep(state);
       const visibleStep = platformVerifyStep;
@@ -525,6 +773,7 @@
 
     return {
       executeCpaStep10,
+      executeAetherStep10,
       executeCodex2ApiStep10,
       executeLocalCpaJsonStep10,
       executeStep10,

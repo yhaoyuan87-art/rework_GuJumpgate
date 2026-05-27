@@ -10,6 +10,7 @@
       createAutomationTab = null,
       ensureContentScriptReadyOnTab,
       getPanelMode,
+      normalizeAetherUrl,
       normalizeCodex2ApiUrl,
       normalizeSub2ApiUrl,
       rememberSourceLastUrl,
@@ -80,6 +81,205 @@
         .map((value) => String(value || '').trim())
         .find(Boolean);
       return message || `Codex2API 请求失败（HTTP ${responseStatus}）。`;
+    }
+
+    function getAetherApiErrorMessage(payload, responseStatus = 500) {
+      const candidates = [
+        payload?.detail,
+        payload?.error,
+        payload?.message,
+        payload?.reason,
+      ];
+      const message = candidates
+        .map((value) => String(value || '').trim())
+        .find(Boolean);
+      return message || `Aether 请求失败（HTTP ${responseStatus}）。`;
+    }
+
+    function normalizeAetherProviderId(value = '', aetherUrl = '') {
+      const direct = String(value || '').trim();
+      if (direct) {
+        return direct;
+      }
+      try {
+        const fromUrl = new URL(aetherUrl).searchParams.get('providerId');
+        if (fromUrl) {
+          return fromUrl.trim();
+        }
+      } catch {
+        // Fall back to the built-in default below.
+      }
+      return '20641f07-caa0-4988-b7ff-adac2383b73f';
+    }
+
+    function getAetherBearerToken(state = {}) {
+      return String(state?.aetherBearerToken || '').trim();
+    }
+
+    function getAetherDeviceId(state = {}) {
+      return String(state?.aetherDeviceId || '').trim();
+    }
+
+    async function runAetherApiWithBearer(origin, path, options = {}) {
+      const token = String(options.bearerToken || '').trim();
+      const deviceId = String(options.deviceId || '').trim();
+      if (!token || !deviceId) {
+        return null;
+      }
+      const response = await fetch(`${origin}${path}`, {
+        method: options.method || 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Device-Id': deviceId,
+        },
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
+      return { ok: response.ok, status: response.status, payload };
+    }
+
+    async function getAetherAutomationTab(origin, options = {}) {
+      const poolUrl = options.poolUrl || `${origin}/admin/pool`;
+      const queryPattern = `${origin.replace(/\/+$/, '')}/*`;
+      let tabs = [];
+      try {
+        tabs = await chrome.tabs.query({ url: queryPattern });
+      } catch {
+        tabs = [];
+      }
+      const poolTabs = tabs.filter((tab) => /\/admin\/pool(?:[?#]|$)/i.test(String(tab?.url || '')));
+      if (poolTabs.length) {
+        return poolTabs.find((tab) => tab.active) || poolTabs[0];
+      }
+      if (tabs.length) {
+        return tabs.find((tab) => tab.active) || tabs[0];
+      }
+      if (!tabs.length && typeof createAutomationTab === 'function') {
+        try {
+          const created = await createAutomationTab({ url: poolUrl, active: true });
+          if (created?.id) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            return created;
+          }
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+
+    async function runAetherApiFromPage(origin, path, options = {}) {
+      if (!chrome?.tabs?.query || !chrome?.scripting?.executeScript) {
+        throw new Error('当前浏览器不支持读取 Aether 页面登录态。');
+      }
+      const tab = await getAetherAutomationTab(origin, options);
+      if (!tab?.id) {
+        throw new Error('未找到 Aether 页面，请先打开并登录 Aether 号池页后重试。');
+      }
+      const [{ result } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async ({ requestPath, requestMethod, requestBody }) => {
+          function getDeviceId() {
+            const existing = localStorage.getItem('aether_client_device_id') || '';
+            if (existing) return existing;
+            const created = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `device-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
+            localStorage.setItem('aether_client_device_id', created);
+            return created;
+          }
+
+          async function requestWithToken(token) {
+            const deviceId = getDeviceId();
+            const response = await fetch(requestPath, {
+              method: requestMethod,
+              credentials: 'include',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                ...(deviceId ? { 'X-Client-Device-Id': deviceId } : {}),
+              },
+              body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+            });
+            let payload = {};
+            try {
+              payload = await response.json();
+            } catch {
+              payload = {};
+            }
+            return { ok: response.ok, status: response.status, payload };
+          }
+
+          let token = localStorage.getItem('access_token') || '';
+          let result = await requestWithToken(token);
+          if (result.status === 401) {
+            try {
+              const refreshResponse = await fetch('/api/auth/refresh', {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                },
+                body: '{}',
+              });
+              const refreshPayload = await refreshResponse.json().catch(() => ({}));
+              token = refreshPayload?.access_token || '';
+              if (refreshResponse.ok && token) {
+                localStorage.setItem('access_token', token);
+                result = await requestWithToken(token);
+              }
+            } catch {
+              // Keep the original 401 result.
+            }
+          }
+          return result;
+        },
+        args: [{
+          requestPath: path,
+          requestMethod: options.method || 'POST',
+          requestBody: options.body,
+        }],
+      });
+      if (!result || typeof result !== 'object') {
+        throw new Error('Aether 页面未返回接口结果，请确认页面已正常加载。');
+      }
+      return result;
+    }
+
+    async function fetchAetherJson(origin, path, options = {}) {
+      const timeoutMs = Math.max(1000, Math.floor(Number(options.timeoutMs) || 30000));
+      let timeoutHandle = null;
+      try {
+        const result = await Promise.race([
+          runAetherApiWithBearer(origin, path, options).then((result) => {
+            if (!result || result.status === 401 || result.status === 403) {
+              return runAetherApiFromPage(origin, path, options);
+            }
+            return result;
+          }),
+          new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => reject(new Error('Aether 请求超时，请稍后重试。')), timeoutMs);
+          }),
+        ]);
+
+        if (!result.ok) {
+          throw new Error(getAetherApiErrorMessage(result.payload, result.status));
+        }
+        return result.payload || {};
+      } finally {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      }
     }
 
     function deriveCpaManagementOrigin(vpsUrl) {
@@ -200,6 +400,9 @@
       if (getPanelMode(state) === 'codex2api') {
         return requestCodex2ApiOAuthUrl(state, options);
       }
+      if (getPanelMode(state) === 'aether') {
+        return requestAetherOAuthUrl(state, options);
+      }
       if (getPanelMode(state) === 'sub2api') {
         return requestSub2ApiOAuthUrl(state, options);
       }
@@ -305,6 +508,35 @@
       };
     }
 
+    async function requestAetherOAuthUrl(state, options = {}) {
+      const { logLabel = 'OAuth 刷新' } = options;
+      const aetherUrl = normalizeAetherUrl(state.aetherUrl);
+      const providerId = normalizeAetherProviderId(state.aetherProviderId, aetherUrl);
+      const parsed = new URL(aetherUrl);
+      const origin = parsed.origin;
+      const poolUrl = `${origin}/admin/pool?providerId=${encodeURIComponent(providerId)}`;
+
+      await addLog(`${logLabel}：正在通过 Aether 生成 OAuth 授权链接...`);
+      const result = await fetchAetherJson(origin, `/api/admin/provider-oauth/providers/${encodeURIComponent(providerId)}/start`, {
+        method: 'POST',
+        body: {},
+        poolUrl,
+        bearerToken: getAetherBearerToken(state),
+        deviceId: getAetherDeviceId(state),
+      });
+
+      const oauthUrl = String(result?.authorization_url || result?.auth_url || result?.authUrl || '').trim();
+      const oauthState = extractStateFromAuthUrl(oauthUrl);
+      if (!oauthUrl || !oauthUrl.startsWith('http')) {
+        throw new Error('Aether 未返回有效的 authorization_url。');
+      }
+
+      return {
+        oauthUrl,
+        aetherOAuthState: oauthState || null,
+      };
+    }
+
     async function requestSub2ApiOAuthUrl(state, options = {}) {
       const { logLabel = 'OAuth 刷新' } = options;
       const sub2apiUrl = normalizeSub2ApiUrl(state.sub2apiUrl);
@@ -333,6 +565,7 @@
       requestOAuthUrlFromPanel,
       requestLocalCpaJsonOAuthUrl,
       requestCodex2ApiOAuthUrl,
+      requestAetherOAuthUrl,
       requestCpaOAuthUrl,
       requestSub2ApiOAuthUrl,
     };

@@ -4,6 +4,7 @@
   function createNavigationUtils(deps = {}) {
     const {
       DEFAULT_CODEX2API_URL,
+      DEFAULT_AETHER_URL,
       DEFAULT_SUB2API_URL,
       normalizeLocalCpaStep9Mode,
       sourceRegistry = null,
@@ -41,6 +42,17 @@
       return parsed.toString();
     }
 
+    function normalizeAetherUrl(rawUrl) {
+      const input = (rawUrl || '').trim() || DEFAULT_AETHER_URL;
+      const withProtocol = /^https?:\/\//i.test(input) ? input : `http://${input}`;
+      const parsed = new URL(withProtocol);
+      if (!parsed.pathname || parsed.pathname === '/') {
+        parsed.pathname = '/admin/pool';
+      }
+      parsed.hash = '';
+      return parsed.toString();
+    }
+
     function getPanelMode(state = {}) {
       if (state.panelMode === 'local-cpa-json') {
         return 'local-cpa-json';
@@ -53,6 +65,9 @@
       }
       if (state.panelMode === 'codex2api') {
         return 'codex2api';
+      }
+      if (state.panelMode === 'aether') {
+        return 'aether';
       }
       return 'cpa';
     }
@@ -70,6 +85,9 @@
       }
       if (mode === 'codex2api') {
         return 'Codex2API';
+      }
+      if (mode === 'aether') {
+        return 'Aether';
       }
       return 'CPA';
     }
@@ -216,6 +234,7 @@
       isSignupPasswordPageUrl,
       matchesSourceUrlFamily,
       normalizeCodex2ApiUrl,
+      normalizeAetherUrl,
       normalizeSub2ApiUrl,
       parseUrlSafely,
       shouldBypassStep9ForLocalCpa,

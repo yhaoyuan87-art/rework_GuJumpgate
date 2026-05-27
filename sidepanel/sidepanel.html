@@ -123,6 +123,7 @@
           <option value="cpa">CPA 面板</option>
           <option value="sub2api">SUB2API</option>
           <option value="codex2api">Codex2API</option>
+          <option value="aether">Aether</option>
         </select>
       </div>
       <div class="data-row" id="row-account-access-strategy">
@@ -269,6 +270,36 @@
             data-hide-label="隐藏 Codex2API 管理密钥" aria-label="显示 Codex2API 管理密钥"
             title="显示 Codex2API 管理密钥"></button>
         </div>
+      </div>
+      <div class="data-row" id="row-aether-url" style="display:none;">
+        <span class="data-label">Aether
+          <span class="data-label-help" tabindex="0"
+            title="Aether 号池页面地址，URL 后面必须带 providerId，例如：http://localhost:8084/admin/pool?providerId=20641f07-caa0-4988-b7ff-adac2383b73f。插件会从这个 providerId 判断要导入到哪个 Aether 号池。">?</span>
+        </span>
+        <input type="text" id="input-aether-url" class="data-input"
+          placeholder="http://localhost:8084/admin/pool?providerId=..." />
+      </div>
+      <div class="data-row" id="row-aether-bearer-token" style="display:none;">
+        <span class="data-label">Bearer Token
+          <span class="data-label-help" tabindex="0"
+            title="Aether 管理员登录凭证。获取方式：打开对应的 Aether 登录窗口，按 F12 打开开发者工具，进入 Network 后刷新页面，在搜索框里搜 bearer；看到请求头里有 Authorization: Bearer xxx 时，把 Bearer 后面的 token 复制出来。注意：这个 token 必须和下面的 Device ID 来自同一个浏览器窗口/同一次登录。">?</span>
+        </span>
+        <div class="input-with-icon">
+          <input type="password" id="input-aether-bearer-token" class="data-input data-input-with-icon"
+            placeholder="从 Aether 登录窗口 localStorage / 请求头复制" />
+          <button id="btn-toggle-aether-bearer-token" class="input-icon-btn" type="button"
+            data-password-toggle="input-aether-bearer-token" data-show-label="显示 Aether Bearer Token"
+            data-hide-label="隐藏 Aether Bearer Token" aria-label="显示 Aether Bearer Token"
+            title="显示 Aether Bearer Token"></button>
+        </div>
+      </div>
+      <div class="data-row" id="row-aether-device-id" style="display:none;">
+        <span class="data-label">Device ID
+          <span class="data-label-help" tabindex="0"
+            title="Aether 登录设备 ID。获取方式：在同一个 Aether 登录窗口按 F12，进入 Console，输入 localStorage.getItem('aether_client_device_id')，复制返回值。注意：它必须和上面的 Bearer Token 来自同一个窗口/同一次登录，否则 Aether 会报 admin authentication required。">?</span>
+        </span>
+        <input type="text" id="input-aether-device-id" class="data-input mono"
+          placeholder="localStorage.getItem('aether_client_device_id')" />
       </div>
       <div class="data-row module-divider-start" id="row-export-current-session-json">
         <span class="data-label">导出当前SESSION JSON</span>

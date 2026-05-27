@@ -1193,6 +1193,31 @@ header {
   flex-shrink: 0;
 }
 
+.data-label-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  font-size: 9px;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: help;
+  vertical-align: 1px;
+}
+
+.data-label-help:hover,
+.data-label-help:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+
 #row-codex2api-url .data-label,
 #row-codex2api-admin-key .data-label {
   width: 76px;

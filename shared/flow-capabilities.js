@@ -10,7 +10,7 @@
   const PLUS_ACCOUNT_ACCESS_STRATEGY_FREE_OAUTH = 'free_oauth';
   const PLUS_ACCOUNT_ACCESS_STRATEGY_SUB2API_CODEX_SESSION = 'sub2api_codex_session';
   const PLUS_ACCOUNT_ACCESS_STRATEGY_CPA_CODEX_SESSION = 'cpa_codex_session';
-  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api']);
+  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api', 'aether']);
 
   const DEFAULT_FLOW_CAPABILITIES = Object.freeze({
     supportsEmailSignup: true,
@@ -32,7 +32,7 @@
       supportsPhoneVerificationSettings: true,
       supportsPlusMode: true,
       supportsContributionMode: true,
-      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api'],
+      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api', 'aether'],
       supportsLuckmail: true,
       supportsOauthTimeoutBudget: true,
       stepDefinitionMode: 'openai-dynamic',
@@ -85,6 +85,10 @@
       ]),
     }),
     codex2api: Object.freeze({
+      supportsPhoneSignup: true,
+      requiresPhoneSignupWarning: false,
+    }),
+    aether: Object.freeze({
       supportsPhoneSignup: true,
       requiresPhoneSignupWarning: false,
     }),
@@ -180,6 +184,9 @@
     }
     if (normalized === 'codex2api') {
       return 'Codex2API';
+    }
+    if (normalized === 'aether') {
+      return 'Aether';
     }
     return 'CPA';
   }

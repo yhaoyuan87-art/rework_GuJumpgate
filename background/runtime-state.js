@@ -40,6 +40,7 @@
         'sub2apiGroupIds',
         'codex2apiSessionId',
         'codex2apiOAuthState',
+        'aetherOAuthState',
       ]),
       plus: Object.freeze([
         'plusCheckoutTabId',

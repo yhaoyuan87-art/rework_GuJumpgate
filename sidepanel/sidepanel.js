@@ -179,6 +179,12 @@ const rowCodex2ApiUrl = document.getElementById('row-codex2api-url');
 const inputCodex2ApiUrl = document.getElementById('input-codex2api-url');
 const rowCodex2ApiAdminKey = document.getElementById('row-codex2api-admin-key');
 const inputCodex2ApiAdminKey = document.getElementById('input-codex2api-admin-key');
+const rowAetherUrl = document.getElementById('row-aether-url');
+const inputAetherUrl = document.getElementById('input-aether-url');
+const rowAetherBearerToken = document.getElementById('row-aether-bearer-token');
+const inputAetherBearerToken = document.getElementById('input-aether-bearer-token');
+const rowAetherDeviceId = document.getElementById('row-aether-device-id');
+const inputAetherDeviceId = document.getElementById('input-aether-device-id');
 const rowCustomPassword = document.getElementById('row-custom-password');
 const rowPlusMode = document.getElementById('row-plus-mode');
 const inputPlusModeEnabled = document.getElementById('input-plus-mode-enabled');
@@ -866,6 +872,7 @@ const LOCAL_CPA_JSON_PANEL_MODE = 'local-cpa-json';
 const LOCAL_CPA_JSON_NO_RT_PANEL_MODE = 'local-cpa-json-no-rt';
 const DEFAULT_PANEL_MODE = LOCAL_CPA_JSON_PANEL_MODE;
 const DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR = '.cli-proxy-api';
+const DEFAULT_AETHER_URL = 'http://localhost:8084/admin/pool?providerId=20641f07-caa0-4988-b7ff-adac2383b73f';
 const DEFAULT_LOCAL_CPA_STEP9_MODE = 'submit';
 const DEFAULT_CPA_CALLBACK_MODE = 'step8';
 const MAIL_2925_MODE_PROVIDE = 'provide';
@@ -4168,6 +4175,7 @@ function collectSettingsPayload() {
         || normalized === 'local-cpa-json-no-rt'
         || normalized === 'sub2api'
         || normalized === 'codex2api'
+        || normalized === 'aether'
         ? normalized
         : 'cpa';
     });
@@ -4353,6 +4361,9 @@ function collectSettingsPayload() {
     ipProxyRegion: currentIpProxyServiceProfile.region,
     codex2apiUrl: inputCodex2ApiUrl.value.trim(),
     codex2apiAdminKey: inputCodex2ApiAdminKey.value.trim(),
+    aetherUrl: (inputAetherUrl?.value || '').trim() || DEFAULT_AETHER_URL,
+    aetherBearerToken: (inputAetherBearerToken?.value || '').trim(),
+    aetherDeviceId: (inputAetherDeviceId?.value || '').trim(),
     plusModeEnabled: fixedPlusModeEnabled,
     plusPaymentMethod,
     paypalEmail: String(currentPayPalAccount?.email || latestState?.paypalEmail || '').trim(),
@@ -8465,6 +8476,7 @@ function normalizePanelMode(value = '') {
     || normalized === localCpaJsonNoRtMode
     || normalized === 'sub2api'
     || normalized === 'codex2api'
+    || normalized === 'aether'
   ) {
     return normalized;
   }
@@ -10331,6 +10343,15 @@ function applySettingsState(state) {
   }
   inputCodex2ApiUrl.value = state?.codex2apiUrl || '';
   inputCodex2ApiAdminKey.value = state?.codex2apiAdminKey || '';
+  if (inputAetherUrl) {
+    inputAetherUrl.value = state?.aetherUrl || DEFAULT_AETHER_URL;
+  }
+  if (inputAetherBearerToken) {
+    inputAetherBearerToken.value = state?.aetherBearerToken || '';
+  }
+  if (inputAetherDeviceId) {
+    inputAetherDeviceId.value = state?.aetherDeviceId || '';
+  }
   const restoredMailProvider = (
     typeof normalizeSupportedMailProvider === 'function'
       ? normalizeSupportedMailProvider
@@ -12413,13 +12434,14 @@ function updatePanelModeUI() {
   }
   if (accountAccessStrategyCaption) {
     accountAccessStrategyCaption.textContent = exportTarget === 'codex2api'
-      ? '仅支持 OAuth'
+      ? 'Codex2API 仅支持 OAuth'
       : '';
   }
   const useLocalCpaJson = panelMode === LOCAL_CPA_JSON_PANEL_MODE || panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
   const useLocalCpaJsonNoRt = panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
   const useSub2Api = panelMode === 'sub2api';
   const useCodex2Api = panelMode === 'codex2api';
+  const useAether = panelMode === 'aether';
   const useCpa = panelMode === 'cpa';
   const setRowDisplay = (row, visible) => {
     if (!row) {
@@ -12445,6 +12467,9 @@ function updatePanelModeUI() {
   setRowDisplay(rowSub2ApiDefaultProxy, useSub2Api);
   setRowDisplay(rowCodex2ApiUrl, useCodex2Api);
   setRowDisplay(rowCodex2ApiAdminKey, useCodex2Api);
+  setRowDisplay(rowAetherUrl, useAether);
+  setRowDisplay(rowAetherBearerToken, useAether);
+  setRowDisplay(rowAetherDeviceId, useAether);
 
   const step9Btn = document.querySelector('.step-btn[data-step-key="platform-verify"]');
   if (step9Btn) {
@@ -12452,7 +12477,9 @@ function updatePanelModeUI() {
       ? (useLocalCpaJsonNoRt ? '本地CPA JSON 无RT 导出' : '本地CPA JSON 有RT 导出')
       : (useSub2Api
         ? 'SUB2API 回调验证'
-        : (useCodex2Api ? 'Codex2API 回调验证' : 'CPA 回调验证'));
+        : (useCodex2Api
+          ? 'Codex2API 回调验证'
+          : (useAether ? 'Aether 回调导入' : 'CPA 回调验证')));
   }
 }
 
@@ -13297,6 +13324,7 @@ function validateLocalCpaJsonPluginDir(options = {}) {
         || normalized === 'local-cpa-json-no-rt'
         || normalized === 'sub2api'
         || normalized === 'codex2api'
+        || normalized === 'aether'
         ? normalized
         : 'cpa';
     });
@@ -15107,6 +15135,30 @@ inputCodex2ApiAdminKey.addEventListener('input', () => {
   scheduleSettingsAutoSave();
 });
 inputCodex2ApiAdminKey.addEventListener('blur', () => {
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputAetherUrl?.addEventListener('input', () => {
+  markSettingsDirty(true);
+  scheduleSettingsAutoSave();
+});
+inputAetherUrl?.addEventListener('blur', () => {
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputAetherBearerToken?.addEventListener('input', () => {
+  markSettingsDirty(true);
+  scheduleSettingsAutoSave();
+});
+inputAetherBearerToken?.addEventListener('blur', () => {
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputAetherDeviceId?.addEventListener('input', () => {
+  markSettingsDirty(true);
+  scheduleSettingsAutoSave();
+});
+inputAetherDeviceId?.addEventListener('blur', () => {
   saveSettings({ silent: true }).catch(() => { });
 });
 

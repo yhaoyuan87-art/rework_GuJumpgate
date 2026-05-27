@@ -478,6 +478,7 @@ const SUB2API_STEP1_RESPONSE_TIMEOUT_MS = 90000;
 const SUB2API_STEP9_RESPONSE_TIMEOUT_MS = 120000;
 const DEFAULT_SUB2API_URL = '';
 const DEFAULT_CODEX2API_URL = 'http://localhost:8080/admin/accounts';
+const DEFAULT_AETHER_URL = 'http://localhost:8084/admin/pool?providerId=20641f07-caa0-4988-b7ff-adac2383b73f';
 const DEFAULT_GPC_HELPER_API_URL = 'https://your-gpc-helper-domain.example';
 const BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL = 'https://gujumpgate.zg.fyi/api/checkout';
 const BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_KEY = '2KwVxE6f0ABH002JLkoQJ9ReRf4_d01y';
@@ -985,6 +986,9 @@ const PERSISTED_SETTING_DEFAULTS = {
   ipProxyRegion: '',
   codex2apiUrl: DEFAULT_CODEX2API_URL,
   codex2apiAdminKey: '',
+  aetherUrl: DEFAULT_AETHER_URL,
+  aetherBearerToken: '',
+  aetherDeviceId: '',
   customPassword: '',
   plusModeEnabled: true,
   plusPaymentMethod: DEFAULT_PLUS_PAYMENT_METHOD,
@@ -1192,6 +1196,7 @@ const DEFAULT_STATE = {
   sub2apiProxyId: null, // SUB2API 本轮使用的代理 ID。
   codex2apiSessionId: null, // Codex2API OAuth 会话 ID。
   codex2apiOAuthState: null, // Codex2API OAuth state。
+  aetherOAuthState: null, // Aether OAuth state。
   plusCheckoutTabId: null, // Plus checkout / PayPal 标签页 ID。
   automationWindowId: null, // 当前任务锁定的浏览器窗口 ID，避免新标签页跑到其它窗口。
   plusCheckoutUrl: null, // Plus checkout 运行时短链，不写入持久配置。
@@ -2585,6 +2590,9 @@ function normalizePanelMode(value = '') {
   if (normalized === 'codex2api') {
     return 'codex2api';
   }
+  if (normalized === 'aether') {
+    return 'aether';
+  }
   return 'cpa';
 }
 
@@ -2988,6 +2996,11 @@ function normalizePersistentSettingValue(key, value) {
     case 'codex2apiUrl':
       return normalizeCodex2ApiUrl(value);
     case 'codex2apiAdminKey':
+      return String(value || '').trim();
+    case 'aetherUrl':
+      return normalizeAetherUrl(value);
+    case 'aetherBearerToken':
+    case 'aetherDeviceId':
       return String(value || '').trim();
     case 'customPassword':
       return String(value || '');
@@ -8540,6 +8553,20 @@ function normalizeCodex2ApiUrl(rawUrl) {
   return parsed.toString();
 }
 
+function normalizeAetherUrl(rawUrl) {
+  if (typeof navigationUtils !== 'undefined' && navigationUtils?.normalizeAetherUrl) {
+    return navigationUtils.normalizeAetherUrl(rawUrl);
+  }
+  const input = (rawUrl || '').trim() || DEFAULT_AETHER_URL;
+  const withProtocol = /^https?:\/\//i.test(input) ? input : `http://${input}`;
+  const parsed = new URL(withProtocol);
+  if (!parsed.pathname || parsed.pathname === '/') {
+    parsed.pathname = '/admin/pool';
+  }
+  parsed.hash = '';
+  return parsed.toString();
+}
+
 function getPanelMode(state = {}) {
   if (typeof navigationUtils !== 'undefined' && navigationUtils?.getPanelMode) {
     return navigationUtils.getPanelMode(state);
@@ -8555,6 +8582,9 @@ function getPanelMode(state = {}) {
   }
   if (state.panelMode === 'codex2api') {
     return 'codex2api';
+  }
+  if (state.panelMode === 'aether') {
+    return 'aether';
   }
   return 'cpa';
 }
@@ -8575,6 +8605,9 @@ function getPanelModeLabel(modeOrState) {
   }
   if (mode === 'codex2api') {
     return 'Codex2API';
+  }
+  if (mode === 'aether') {
+    return 'Aether';
   }
   return 'CPA';
 }
@@ -9334,6 +9367,7 @@ const workflowEngine = self.MultiPageBackgroundWorkflowEngine?.createWorkflowEng
 
 const navigationUtils = self.MultiPageBackgroundNavigationUtils?.createNavigationUtils({
   DEFAULT_CODEX2API_URL,
+  DEFAULT_AETHER_URL,
   DEFAULT_SUB2API_URL,
   normalizeLocalCpaStep9Mode,
   sourceRegistry,
@@ -9793,6 +9827,7 @@ function getDownstreamStateResets(step, state = {}) {
       sub2apiProxyId: null,
       codex2apiSessionId: null,
       codex2apiOAuthState: null,
+      aetherOAuthState: null,
       flowStartTime: null,
       password: null,
       lastEmailTimestamp: null,
@@ -10812,6 +10847,7 @@ async function handleStepData(step, payload) {
       if (payload.cpaManagementOrigin !== undefined) updates.cpaManagementOrigin = payload.cpaManagementOrigin || null;
       if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
       if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
+      if (payload.aetherOAuthState !== undefined) updates.aetherOAuthState = payload.aetherOAuthState || null;
       if (payload.sub2apiGroupIds !== undefined) updates.sub2apiGroupIds = Array.isArray(payload.sub2apiGroupIds)
         ? payload.sub2apiGroupIds
         : [];
@@ -13465,6 +13501,7 @@ const panelBridge = self.MultiPageBackgroundPanelBridge?.createPanelBridge({
   ensureContentScriptReadyOnTab,
   getPanelMode,
   normalizeCodex2ApiUrl,
+  normalizeAetherUrl,
   normalizeSub2ApiUrl,
   rememberSourceLastUrl,
   sendToContentScript,
@@ -13905,6 +13942,7 @@ const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
   chrome,
   closeConflictingTabsForSource,
   completeNodeFromBackground,
+  createAutomationTab,
   createLocalCliProxyApi: self.MultiPageBackgroundLocalCliProxyApi?.createLocalCliProxyApi,
   ensureContentScriptReadyOnTab,
   getPanelMode,
@@ -13913,6 +13951,7 @@ const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
   isTabAlive,
   normalizeHotmailLocalBaseUrl,
   normalizeCodex2ApiUrl,
+  normalizeAetherUrl,
   normalizeSub2ApiUrl,
   rememberSourceLastUrl,
   reuseOrCreateTab,
