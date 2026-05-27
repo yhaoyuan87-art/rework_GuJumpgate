@@ -5,3 +5,5 @@
 增加对接herosms接码
 
 覆盖GuJumpgate-v0.1.4重载插件即可
+
+更新，集成aether
